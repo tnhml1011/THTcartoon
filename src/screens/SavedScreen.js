@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -7,69 +7,13 @@ import {
   Image,
   StyleSheet,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
-import auth from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
+import useSavedVideos from '../hooks/useSavedVideos';
 
 export default function SavedVideosScreen() {
-  const [savedVideos, setSavedVideos] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { savedVideos, loading, handleDeleteVideo } = useSavedVideos();
   const navigation = useNavigation();
-  const user = auth().currentUser;
-
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchSavedVideos = async () => {
-      try {
-        const savedRef = firestore()
-          .collection('users')
-          .doc(user.uid)
-          .collection('savedVideos');
-        const snapshot = await savedRef.get();
-        // Lấy doc.id để biết id document để xóa
-        const videos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setSavedVideos(videos);
-      } catch (err) {
-        console.error('Lỗi khi tải phim đã lưu:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSavedVideos();
-  }, [user]);
-
-  const handleDeleteVideo = (videoId) => {
-    Alert.alert(
-      'Xác nhận xóa',
-      'Bạn có chắc muốn xóa phim này khỏi danh sách đã lưu?',
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Xóa',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await firestore()
-                .collection('users')
-                .doc(user.uid)
-                .collection('savedVideos')
-                .doc(videoId)
-                .delete();
-
-              setSavedVideos(prevVideos => prevVideos.filter(video => video.id !== videoId));
-            } catch (error) {
-              console.error('Lỗi khi xóa phim:', error);
-              Alert.alert('Lỗi', 'Xóa phim không thành công. Vui lòng thử lại.');
-            }
-          },
-        },
-      ]
-    );
-  };
 
   if (loading)
     return (
@@ -100,6 +44,11 @@ export default function SavedVideosScreen() {
               title: item.title,
               author: item.author,
               thumbnail: item.thumbnail,
+              description: item.description,
+              date: item.date,
+              collection: item.collection,
+              identifier: item.identifier,
+              mediatype: item.mediatype,
             })
           }
         >

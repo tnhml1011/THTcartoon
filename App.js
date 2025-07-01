@@ -1,73 +1,60 @@
+// App.js
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, View, TouchableOpacity, Modal, Text, StyleSheet, Alert } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import auth from '@react-native-firebase/auth';
 
-import HomeScreen from './screens/HomeScreen';
-import VideoScreen from './screens/VideoScreen';
-import LoginScreen from './screens/LoginScreen';
-import RegisterScreen from './screens/RegisterScreen';
-import SavedScreen from './screens/SavedScreen';
-import ProfileScreen from './screens/ProfileScreen';
-
+import useUserRole from './src/hooks/useUserRole'; // 👈 Mới thêm
+import HomeScreen from './src/screens/HomeScreen';
+import VideoScreen from './src/screens/VideoScreen';
+import LoginScreen from './src/screens/LoginScreen';
+import RegisterScreen from './src/screens/RegisterScreen';
+import SavedScreen from './src/screens/SavedScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
+import AdminDrawer from './Admin/admin_routers/AdminDrawer'; // 👈 Navigation riêng cho admin
+import MenuModal from './src/components/MenuModal';
+import SplashScreen from './src/screens/SplashScreen'; // Thêm import
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 const Stack = createStackNavigator();
 const navigationRef = createNavigationContainerRef();
 
-const MenuModal = ({ visible, onClose, onLogout }) => (
-  <Modal transparent={true} visible={visible} animationType="fade" onRequestClose={onClose}>
-    <TouchableOpacity style={styles.modalOverlay} onPress={onClose}>
-      <View style={styles.menuContainer}>
-        <TouchableOpacity onPress={() => { onClose(); navigationRef.navigate('Home'); }} style={styles.menuItem}>
-          <Text style={styles.menuText}>Trang chủ</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => { onClose(); navigationRef.navigate('Saved'); }} style={styles.menuItem}>
-          <Text style={styles.menuText}>Phim đã lưu</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => { onClose(); navigationRef.navigate('Profile'); }} style={styles.menuItem}>
-          <Text style={styles.menuText}>Thông tin người dùng</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => {
-          Alert.alert(
-            'Xác nhận',
-            'Bạn có chắc muốn đăng xuất?',
-            [
-              { text: 'Hủy', style: 'cancel' },
-              { text: 'Đăng xuất', style: 'destructive', onPress: () => { onClose(); onLogout(); } },
-            ],
-            { cancelable: true }
-          );
-        }} style={[styles.menuItem, { borderBottomWidth: 0 }]}>
-          <Text style={[styles.menuText, { color: 'red' }]}>Đăng xuất</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  </Modal>
-);
+// ... giữ nguyên MenuModal ...
 
 const App = () => {
   const [initializing, setInitializing] = useState(true);
   const [user, setUser] = useState(null);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [showSplash, setShowSplash] = useState(true); // Thêm state splash
+
+  const { role, loading: roleLoading } = useUserRole(); // 👈 lấy role người dùng
 
   useEffect(() => {
-    const subscriber = auth().onAuthStateChanged((usr) => {
+    const timer = setTimeout(() => setShowSplash(false), 2000); // 2 giây
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const subscriber = auth().onAuthStateChanged(usr => {
       setUser(usr);
-      if (initializing) setInitializing(false);
+      setInitializing(false);
     });
-    return subscriber; // unsubscribe on unmount
+    return subscriber;
   }, []);
 
   const handleLogout = async () => {
     try {
       await auth().signOut();
-       // Đưa về màn hình Login sau khi logout
     } catch (error) {
       Alert.alert('Lỗi', 'Đăng xuất không thành công. Vui lòng thử lại.');
     }
   };
 
-  if (initializing) {
+  if (showSplash) {
+    return <SplashScreen />; // Chỉ hiện splash, không render navigation
+  }
+
+  if (initializing || roleLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" />
@@ -77,71 +64,37 @@ const App = () => {
 
   return (
     <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator
-        screenOptions={{
-          headerRight: () =>
-            user ? (
-              <TouchableOpacity
-                onPress={() => setMenuVisible(true)}
-                style={{ marginRight: 15 }}
-              >
-                <Text style={{ fontSize: 24 }}>☰</Text>
-              </TouchableOpacity>
-            ) : null,
-        }}
-      >
-        {user ? (
-          <>
-            <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'THT Cartoon' }} />
-            <Stack.Screen name="VideoScreen" component={VideoScreen} options={{ title: 'Watch Video' }} />
-            <Stack.Screen name="Saved" component={SavedScreen} options={{ title: 'Phim đã lưu' }} />
-            <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Thông tin người dùng' }} />
-          </>
+      {user ? (
+        role === 'admin' ? (
+          <AdminDrawer />
         ) : (
           <>
-            <Stack.Screen
-              name="Login"
-              component={LoginScreen}
-              options={{ title: 'Đăng nhập' }}
-            />
-            <Stack.Screen
-              name="Register"
-              component={RegisterScreen}
-              options={{ title: 'Đăng ký' }}
-            />
+            <Stack.Navigator
+              screenOptions={{
+                headerRight: () => (
+                  <TouchableOpacity onPress={() => setMenuVisible(true)} style={{ marginRight: 15 }}>
+                    <Text style={{ fontSize: 24 }}>☰</Text>
+                  </TouchableOpacity>
+                ),
+              }}
+            >
+              <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'THT Cartoon' }} />
+              <Stack.Screen name="VideoScreen" component={VideoScreen} options={{ title: 'Xem phim' }} />
+              <Stack.Screen name="Saved" component={SavedScreen} options={{ title: 'Phim đã lưu' }} />
+              <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Thông tin người dùng' }} />
+            </Stack.Navigator>
+            <MenuModal visible={menuVisible} onClose={() => setMenuVisible(false)} onLogout={handleLogout} />
           </>
-        )}
-      </Stack.Navigator>
-
-      <MenuModal visible={menuVisible} onClose={() => setMenuVisible(false)} onLogout={handleLogout} />
+        )
+      ) : (
+        <Stack.Navigator initialRouteName="Login">
+          <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Đăng nhập' }} />
+          <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Đăng ký' }} />
+          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Quên mật khẩu' }} />
+        </Stack.Navigator>
+      )}
     </NavigationContainer>
   );
 };
-
-const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingTop: 50,
-    paddingRight: 10,
-  },
-  menuContainer: {
-    backgroundColor: 'white',
-    borderRadius: 5,
-    width: 160,
-    elevation: 5,
-  },
-  menuItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderBottomColor: '#ddd',
-    borderBottomWidth: 1,
-  },
-  menuText: {
-    fontSize: 16,
-  },
-});
 
 export default App;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,46 +9,14 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import firestore from '@react-native-firebase/firestore';
 import { useNavigation } from '@react-navigation/native';
-
-const PAGE_SIZE = 10;
+import useFetchVideos from '../hooks/useFetchVideos';
+import formatRelativeTime from '../utils/formatRelativeTime';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
-  const [videos, setVideos] = useState([]);
-  const [displayedVideos, setDisplayedVideos] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    const fetchVideos = async () => {
-      try {
-        const snapshot = await firestore().collection('videos').get();
-        const videoData = snapshot.docs.map(doc => doc.data());
-        setVideos(videoData);
-        setDisplayedVideos(videoData.slice(0, PAGE_SIZE));
-      } catch (error) {
-        console.error('Lỗi khi lấy video:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchVideos();
-  }, []);
-
-  useEffect(() => {
-    const filtered = videos.filter(video =>
-      video.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setDisplayedVideos(filtered.slice(0, page * PAGE_SIZE));
-  }, [searchTerm, page, videos]);
-
-  const loadMore = () => {
-    setPage(prev => prev + 1);
-  };
+  const { videos, displayedVideos, loading, loadMore } = useFetchVideos(searchTerm);
 
   const renderItem = ({ item }) => (
     <TouchableOpacity
@@ -58,6 +26,12 @@ const HomeScreen = () => {
           videoUrl: item.videoUrl,
           title: item.title,
           author: item.author,
+          thumbnail: item.thumbnail,
+          description: item.description,
+          date: item.date,
+          collection: item.collection,
+          identifier: item.identifier,
+          mediatype: item.mediatype,
         })
       }
     >
@@ -67,6 +41,11 @@ const HomeScreen = () => {
       />
       <View style={styles.info}>
         <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+          <Text style={{ fontSize: 12, color: '#888' }}>{item.view ?? 0} lượt xem</Text>
+          <Text style={{ fontSize: 12, color: '#888', marginHorizontal: 6 }}>·</Text>
+          <Text style={{ fontSize: 12, color: '#888' }}>{formatRelativeTime(item.date)}</Text>
+        </View>
         <Text style={styles.author}>{item.author}</Text>
       </View>
     </TouchableOpacity>
