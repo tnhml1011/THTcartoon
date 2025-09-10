@@ -19,7 +19,7 @@ import SplashScreen from './src/screens/SplashScreen';
 import ShortsScreen from './src/screens/ShortsScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import MovieManagementScreen from './Admin/admin_screens/MovieManagementScreen';
-
+import UploadVideoScreen from './src/screens/UploadVideoScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
@@ -54,7 +54,7 @@ const UserTabs = () => (
       options={{ title: 'Trang chủ', headerShown: false }} 
     />
     <Tab.Screen name="Shorts" component={ShortsScreen} options={{ title: 'Shorts' }} />
-    <Tab.Screen name="AddNew" component={MovieManagementScreen} options={{ title: '+' }} />
+    <Tab.Screen name="AddNew" component={UploadVideoScreen} options={{ title: '+' }} />
     <Tab.Screen name="Saved" component={SavedScreen} options={{ title: 'Đã lưu' }} />
     <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Tài khoản' }} />
   </Tab.Navigator>
