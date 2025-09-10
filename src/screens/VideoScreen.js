@@ -1,329 +1,341 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity,Image ,FlatList, TextInput, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  FlatList,
+  TextInput,
+  Alert,
+} from 'react-native';
 import Video from 'react-native-video';
 import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 
+// Hàm format thời gian "x phút trước"
+const formatRelativeTime = (timestamp) => {
+  if (!timestamp) return '';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+
+  if (diff < 60) return `${diff} giây trước`;
+  if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`;
+  if (diff < 2592000) return `${Math.floor(diff / 86400)} ngày trước`;
+  return date.toLocaleDateString();
+};
+
 const VideoScreen = ({ route, navigation }) => {
-  const { videoId, videoUrl, title, author, description, date, thumbnail } = route.params;
+  const { videoId } = route.params;
+
+  const [user, setUser] = useState(auth().currentUser);
+  const [video, setVideo] = useState(null);
   const [likes, setLikes] = useState(0);
-  const [comments, setComments] = useState([]);
-  const [commentText, setCommentText] = useState('');
   const [userLiked, setUserLiked] = useState(false);
   const [userSaved, setUserSaved] = useState(false);
-  const [showFullDesc, setShowFullDesc] = useState(false);
-  const [suggestedVideos, setSuggestedVideos] = useState([]);
 
-  const user = auth().currentUser;
-    useEffect(() => {
-  // Lắng nghe Likes
-  const unsubscribeLikes = firestore()
-    .collection('videos')
-    .doc(videoId)
-    .collection('likes')
-    .onSnapshot(snapshot => {
-      setLikes(snapshot.size); // đếm số document = số lượt like
-      if (user) {
-        const liked = snapshot.docs.some(doc => doc.id === user.uid);
-        setUserLiked(liked);
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState('');
+
+  const [relatedVideos, setRelatedVideos] = useState([]);
+  const [showFullDesc, setShowFullDesc] = useState(false);
+
+  useEffect(() => {
+    const unsub = auth().onAuthStateChanged(u => setUser(u));
+    return () => unsub();
+  }, []);
+
+  const ensureUserDoc = async (uid) => {
+    const ref = firestore().collection('users').doc(uid);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({
+        likedVideos: [],
+        savedVideos: [],
+        createdAt: firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    return ref;
+  };
+
+  useEffect(() => {
+    if (!videoId) return;
+
+    const videoRef = firestore().collection('videos').doc(videoId);
+
+    const unsubVideo = videoRef.onSnapshot(snap => {
+      if (snap.exists) {
+        const data = snap.data();
+        setVideo({ id: snap.id, ...data });
+        setLikes(data.likes || 0);
+      } else {
+        setVideo(null);
       }
     });
 
-  // Lắng nghe Comments
-  const unsubscribeComments = firestore()
-    .collection('videos')
-    .doc(videoId)
-    .collection('comments')
-    .orderBy('createdAt', 'desc')
-    .onSnapshot(snapshot => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setComments(data);
-    });
-
-  return () => {
-    unsubscribeLikes();
-    unsubscribeComments();
-  };
-}, [videoId, user]);  
-  // useEffect(() => {
-  //   const unsubscribe = firestore()
-  //     .collection('videos')
-  //     .doc(videoId)
-  //     .onSnapshot(doc => {
-  //       if (doc.exists && doc.data()) {
-  //         setLikes(doc.data().likes || 0);
-  //       } else {
-  //         setLikes(0);
-  //       }
-  //     });
-
-  //   const unsubscribeComments = firestore()
-  //     .collection('videos')
-  //     .doc(videoId)
-  //     .collection('comments')
-  //     .orderBy('createdAt', 'desc')
-  //     .onSnapshot(snapshot => {
-  //       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  //       setComments(data);
-  //     });
-
-  //   return () => {
-  //     unsubscribe();
-  //     unsubscribeComments();
-  //   };
-  // }, [videoId]);
-
-  // Kiểm tra user đã like/save chưa
-  useEffect(() => {
-    if (user) {
-      firestore()
-        .collection('users')
-        .doc(user.uid)
-        .get()
-        .then(doc => {
-          if (doc.exists) {
-            setUserLiked(doc.data().likedVideos?.includes(videoId) || false);
-            setUserSaved(doc.data().savedVideos?.includes(videoId) || false);
-          }
-        });
-    }
-  }, [user, videoId]);
-
-  // Lấy 5 video ngẫu nhiên (sau này bạn thay bằng theo tag)
-  useEffect(() => {
-    firestore()
-      .collection('videos')
-      .get()
-      .then(snapshot => {
-        let allVideos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        allVideos = allVideos.filter(v => v.id !== videoId); // bỏ video hiện tại
-
-        // shuffle & lấy 5 video
-        let shuffled = allVideos.sort(() => 0.5 - Math.random());
-        setSuggestedVideos(shuffled.slice(0, 5));
+    const unsubComments = videoRef
+      .collection('comments')
+      .orderBy('createdAt', 'desc')
+      .onSnapshot(snap => {
+        const arr = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        setComments(arr);
       });
+
+    return () => {
+      unsubVideo();
+      unsubComments();
+    };
   }, [videoId]);
 
-  // Toggle Like
+  useEffect(() => {
+    (async () => {
+      if (!user) {
+        setUserLiked(false);
+        setUserSaved(false);
+        return;
+      }
+      const ref = await ensureUserDoc(user.uid);
+      const snap = await ref.get();
+      const data = snap.data() || {};
+      setUserLiked((data.likedVideos || []).includes(videoId));
+      setUserSaved((data.savedVideos || []).includes(videoId));
+    })();
+  }, [user, videoId]);
+
+  useEffect(() => {
+    (async () => {
+      const snap = await firestore().collection('videos').get();
+      const all = [];
+      snap.forEach(doc => {
+        if (doc.id !== videoId) all.push({ id: doc.id, ...doc.data() });
+      });
+      const shuffled = all.sort(() => 0.5 - Math.random()).slice(0, 5);
+      setRelatedVideos(shuffled);
+    })();
+  }, [videoId]);
+
   const handleLike = async () => {
-  if (!user) {
-    Alert.alert('Bạn cần đăng nhập để thích video');
-    return;
-  }
+    if (!user) {
+      Alert.alert('Bạn cần đăng nhập để thích video');
+      return;
+    }
+    const userRef = await ensureUserDoc(user.uid);
+    const videoRef = firestore().collection('videos').doc(videoId);
+    const snap = await userRef.get();
+    const data = snap.data() || {};
+    let liked = data.likedVideos || [];
 
-  const likeRef = firestore()
-    .collection('videos')
-    .doc(videoId)
-    .collection('likes')
-    .doc(user.uid);
+    if (liked.includes(videoId)) {
+      liked = liked.filter(v => v !== videoId);
+      await Promise.all([
+        userRef.update({ likedVideos: liked }),
+        videoRef.update({ likes: firestore.FieldValue.increment(-1) }),
+      ]);
+      setUserLiked(false);
+    } else {
+      liked.push(videoId);
+      await Promise.all([
+        userRef.update({ likedVideos: liked }),
+        videoRef.update({ likes: firestore.FieldValue.increment(1) }),
+      ]);
+      setUserLiked(true);
+    }
+  };
 
-  const docSnap = await likeRef.get();
-
-  if (docSnap.exists) {
-    // đã like rồi -> unlike
-    await likeRef.delete();
-    setUserLiked(false);
-  } else {
-    // chưa like -> tạo mới
-    await likeRef.set({
-      userId: user.uid,
-      createdAt: firestore.FieldValue.serverTimestamp(),
-    });
-    setUserLiked(true);
-  }
-};
-
-  // Toggle Save
   const handleSave = async () => {
     if (!user) {
       Alert.alert('Bạn cần đăng nhập để lưu video');
       return;
     }
+    const userRef = await ensureUserDoc(user.uid);
+    const snap = await userRef.get();
+    const data = snap.data() || {};
+    let saved = data.savedVideos || [];
 
-    const userRef = firestore().collection('users').doc(user.uid);
-
-    await userRef.get().then(doc => {
-      let savedVideos = doc.data().savedVideos || [];
-
-      if (savedVideos.includes(videoId)) {
-        savedVideos = savedVideos.filter(id => id !== videoId);
-        setUserSaved(false);
-      } else {
-        savedVideos.push(videoId);
-        setUserSaved(true);
-      }
-
-      userRef.update({ savedVideos });
-    });
+    if (saved.includes(videoId)) {
+      saved = saved.filter(v => v !== videoId);
+      await userRef.update({ savedVideos: saved });
+      setUserSaved(false);
+    } else {
+      saved.push(videoId);
+      await userRef.update({ savedVideos: saved });
+      setUserSaved(true);
+    }
   };
 
-  // Gửi comment
   const handleComment = async () => {
-  if (!user) {
-    Alert.alert('Bạn cần đăng nhập để bình luận');
-    return;
-  }
-  if (!commentText.trim()) return;
+    if (!user) {
+      Alert.alert('Bạn cần đăng nhập để bình luận');
+      return;
+    }
+    if (!commentText.trim()) return;
+    const videoRef = firestore().collection('videos').doc(videoId);
 
-  await firestore()
-    .collection('videos')
-    .doc(videoId)
-    .collection('comments')
-    .add({
-      text: commentText,
+    await videoRef.collection('comments').add({
+      text: commentText.trim(),
       userId: user.uid,
+      userName: user.displayName || user.email || 'Người dùng',
       createdAt: firestore.FieldValue.serverTimestamp(),
     });
+    setCommentText('');
+  };
 
-  setCommentText('');
-};
+  if (!video) return <Text style={{ padding: 20 }}>❌ Không tìm thấy video</Text>;
+
   return (
-    <View style={styles.container}>
-      <Video source={{ uri: videoUrl }} style={styles.video} controls resizeMode="contain" />
-
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.meta}>Tác giả: {author}</Text>
-      <Text style={styles.meta}>Ngày: {date}</Text>
-      <Text style={styles.description}>
-        {showFullDesc 
-          ? description 
-          : description.length > 100 
-            ? description.substring(0, 100) + "..." 
-            : description}
-      </Text>
-
-      {description.length > 100 && (
-        <TouchableOpacity onPress={() => setShowFullDesc(!showFullDesc)}>
-          <Text style={styles.moreLess}>
-            {showFullDesc ? "Thu gọn" : "Xem thêm"}
+    <FlatList
+      data={comments}
+      keyExtractor={item => item.id}
+      renderItem={({ item }) => (
+        <View style={styles.commentItem}>
+          <Text style={styles.commentUser}>
+            👤 {item.userName}{' '}
+            <Text style={styles.commentTime}>
+              • {formatRelativeTime(item.createdAt)}
+            </Text>
           </Text>
-        </TouchableOpacity>
+          <Text>{item.text}</Text>
+        </View>
       )}
+      ListHeaderComponent={
+        <>
+          <Video source={{ uri: video.videoUrl }} style={styles.video} controls resizeMode="contain" />
+          <Text style={styles.title}>{video.title}</Text>
+          <Text style={styles.meta}>👤 {video.author}</Text>
+          <Text style={styles.meta}>📅 {video.date}</Text>
 
-      {/* Nút Like & Save */}
-      <View style={styles.actions}>
-        <TouchableOpacity onPress={handleLike} style={styles.button}>
-          <Text>{userLiked ? '💖 Bỏ Thích' : '👍 Thích'} ({likes})</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleSave} style={styles.button}>
-          <Text>{userSaved ? '💾 Đã lưu' : '💾 Lưu Video'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Bình luận */}
-      <Text style={styles.commentHeader}>Bình luận</Text>
-      <FlatList
-        data={comments}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => <Text style={styles.comment}>{item.text}</Text>}
-      />
-      <View style={styles.commentBox}>
-        <TextInput
-          value={commentText}
-          onChangeText={setCommentText}
-          placeholder="Nhập bình luận..."
-          style={styles.input}
-        />
-        <TouchableOpacity onPress={handleComment} style={styles.button}>
-          <Text>Gửi</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Video gợi ý */}
-<Text style={styles.suggestHeader}>Có thể bạn cũng thích</Text>
-      <FlatList
-        data={suggestedVideos}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.suggestItem}
-            onPress={() => navigation.push('VideoScreen', { ...item, videoId: item.id })}
+          <Text
+            style={styles.description}
+            numberOfLines={showFullDesc ? undefined : 3}
           >
-            {/* Thumbnail bên trái */}
-           {item.thumbnail ? (
-              <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-            ) : (
-              <View
-                style={[
-                  styles.thumbnail,
-                  { backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center' }
-                ]}
-              >
-                <Text>🎬</Text>
+            {video.description}
+          </Text>
+          {video.description && video.description.length > 100 && (
+            <TouchableOpacity onPress={() => setShowFullDesc(!showFullDesc)}>
+              <Text style={styles.showMore}>
+                {showFullDesc ? '🔼 Thu gọn' : '🔽 Xem thêm'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.actions}>
+            <TouchableOpacity onPress={handleLike} style={styles.button}>
+              <Text>{userLiked ? '💖 Bỏ thích' : '👍 Thích'} ({likes})</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSave} style={styles.button}>
+              <Text>{userSaved ? '💾 Đã lưu' : '💾 Lưu video'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.commentHeader}>Bình luận ({comments.length})</Text>
+        </>
+      }
+      ListFooterComponent={
+        <>
+          <View style={styles.commentBox}>
+            <TextInput
+              value={commentText}
+              onChangeText={setCommentText}
+              placeholder="Nhập bình luận..."
+              style={styles.input}
+            />
+            <TouchableOpacity onPress={handleComment} style={styles.button}>
+              <Text>Gửi</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.relatedTitle}>Video ngẫu nhiên</Text>
+          {relatedVideos.map(v => (
+            <TouchableOpacity
+              key={v.id}
+              style={styles.relatedItem}
+              onPress={() => navigation.push('VideoScreen', { videoId: v.id })}
+            >
+              {v.thumbnail ? (
+                <Image source={{ uri: v.thumbnail }} style={styles.thumbnail} />
+              ) : (
+                <View
+                  style={[
+                    styles.thumbnail,
+                    { backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center' },
+                  ]}
+                >
+                  <Text>🎬</Text>
+                </View>
+              )}
+              <View style={styles.relatedInfo}>
+                <Text numberOfLines={2} style={styles.relatedVideoTitle}>{v.title}</Text>
+                <Text style={styles.suggestMeta}>👤 {v.author}</Text>
+                <Text style={styles.suggestMeta}>📅 {v.date || 'Không rõ'}</Text>
               </View>
-                )}
-
-            {/* Thông tin bên phải */}
-            <View style={styles.suggestInfo}>
-              <Text numberOfLines={2} style={styles.suggestTitle}>{item.title}</Text>
-              <Text style={styles.suggestMeta}>👤 {item.author}</Text>
-              <Text style={styles.suggestMeta}>📅 {item.date || 'Không rõ'}</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-      />
-
-      
-    </View>
+            </TouchableOpacity>
+          ))}
+        </>
+      }
+      contentContainerStyle={styles.container}
+      ListEmptyComponent={<Text style={{ textAlign: 'center' }}>Chưa có bình luận</Text>}
+    />
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  video: { width: '100%', height: 200, backgroundColor: '#000' },
+  container: { padding: 10 },
+  video: { width: '100%', height: 220, backgroundColor: '#000' },
   title: { fontWeight: 'bold', fontSize: 18, marginVertical: 8 },
   meta: { fontSize: 14, color: '#555' },
-  description: { marginVertical: 8 },
-  moreLess: { color: 'blue', marginBottom: 5 },
+  description: { marginVertical: 8, fontSize: 14 },
+  showMore: {
+    color: '#007bff',
+    marginTop: 4,
+    fontWeight: '500',
+    alignSelf: 'flex-start',
+  },
   actions: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: 10 },
   button: { padding: 10, backgroundColor: '#eee', borderRadius: 8 },
   commentHeader: { fontWeight: 'bold', marginVertical: 10, fontSize: 16 },
-  comment: { backgroundColor: '#f1f1f1', padding: 5, borderRadius: 5, marginVertical: 2 },
+  commentItem: {
+    marginVertical: 6,
+    backgroundColor: '#f1f1f1',
+    padding: 8,
+    borderRadius: 6,
+  },
+  commentUser: {
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  commentTime: {
+    fontSize: 12,
+    color: '#777',
+    fontWeight: 'normal',
+  },
   commentBox: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  input: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 5, padding: 5, marginRight: 5 },
-  suggestHeader: { fontWeight: 'bold', fontSize: 16, marginVertical: 10 },
-  suggestItem: { padding: 10, backgroundColor: '#fafafa', borderRadius: 8, marginVertical: 5 },
-  suggestTitle: { fontSize: 15, fontWeight: '600' },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 8,
+    marginRight: 8,
+  },
+  relatedTitle: { fontWeight: 'bold', fontSize: 16, marginVertical: 10 },
+  relatedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginVertical: 5,
+  },
+  thumbnail: { width: 100, height: 60, borderRadius: 6, marginRight: 10 },
+  relatedInfo: { flex: 1 },
+  relatedVideoTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4 },
   suggestMeta: { fontSize: 13, color: '#666' },
-  suggestHeader: {
-  fontWeight: 'bold',
-  fontSize: 16,
-  marginVertical: 10,
-},
-suggestItem: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  padding: 8,
-  backgroundColor: '#fff',
-  borderRadius: 8,
-  marginVertical: 5,
-  elevation: 2, // bóng nhẹ trên Android
-  shadowColor: '#000', // bóng trên iOS
-  shadowOpacity: 0.1,
-  shadowRadius: 4,
-},
-thumbnailBox: {
-  marginRight: 10,
-},
-thumbnail: {
-  width: 100,
-  height: 60,
-  borderRadius: 6,
-},
-suggestInfo: {
-  flex: 1,
-  justifyContent: 'center',
-},
-suggestTitle: {
-  fontSize: 15,
-  fontWeight: '600',
-  marginBottom: 4,
-},
-suggestMeta: {
-  fontSize: 13,
-  color: '#666',
-},
-
 });
 
 export default VideoScreen;

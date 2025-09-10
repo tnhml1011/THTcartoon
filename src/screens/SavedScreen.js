@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,73 @@ import {
   Image,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import useSavedVideos from '../hooks/useSavedVideos';
+import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 
-export default function SavedVideosScreen() {
-  const { savedVideos, loading, handleDeleteVideo } = useSavedVideos();
+export default function SavedScreen() {
+  const [loading, setLoading] = useState(true);
+  const [savedVideos, setSavedVideos] = useState([]);
   const navigation = useNavigation();
+  const user = auth().currentUser;
+
+  // load danh sách video đã lưu
+  useEffect(() => {
+    if (!user) return;
+
+    const unsub = firestore()
+      .collection('users')
+      .doc(user.uid)
+      .onSnapshot(async snap => {
+        if (!snap.exists) {
+          setSavedVideos([]);
+          setLoading(false);
+          return;
+        }
+
+        const data = snap.data() || {};
+        const savedIds = data.savedVideos || [];
+
+        if (savedIds.length === 0) {
+          setSavedVideos([]);
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const promises = savedIds.map(id =>
+            firestore().collection('videos').doc(id).get()
+          );
+          const docs = await Promise.all(promises);
+          const videos = docs
+            .filter(d => d.exists)
+            .map(d => ({ id: d.id, ...d.data() }));
+          setSavedVideos(videos);
+        } catch (err) {
+          console.error('Lỗi tải savedVideos:', err);
+        }
+        setLoading(false);
+      });
+
+    return () => unsub();
+  }, [user]);
+
+  // xóa video khỏi danh sách lưu
+  const handleDeleteVideo = async videoId => {
+    if (!user) return Alert.alert('Bạn cần đăng nhập');
+
+    try {
+      const userRef = firestore().collection('users').doc(user.uid);
+      await userRef.update({
+        savedVideos: firestore.FieldValue.arrayRemove(videoId),
+      });
+    } catch (e) {
+      console.error('Lỗi khi xóa video:', e);
+      Alert.alert('Có lỗi khi xóa video');
+    }
+  };
 
   if (loading)
     return (
@@ -34,12 +94,13 @@ export default function SavedVideosScreen() {
   return (
     <FlatList
       data={savedVideos}
-      keyExtractor={(item) => item.id}
+      keyExtractor={item => item.id}
       renderItem={({ item }) => (
         <TouchableOpacity
           style={styles.card}
           onPress={() =>
             navigation.navigate('VideoScreen', {
+              videoId: item.id, // 🔑 Quan trọng: truyền videoId
               videoUrl: item.videoUrl,
               title: item.title,
               author: item.author,
@@ -53,7 +114,9 @@ export default function SavedVideosScreen() {
           }
         >
           <Image
-            source={{ uri: item.thumbnail || 'https://placehold.co/320x180?text=No+Image' }}
+            source={{
+              uri: item.thumbnail || 'https://placehold.co/320x180?text=No+Image',
+            }}
             style={styles.thumbnail}
           />
           <View style={styles.info}>
